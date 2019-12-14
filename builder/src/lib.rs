@@ -10,50 +10,64 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let name = &ast.ident;
     let bname = format!("{}Builder", name);
     let bident = syn::Ident::new(&bname, name.span());
-    let expected = quote! {
+    let fields = if let syn::Data::Struct(syn::DataStruct {
+        fields: syn::Fields::Named(syn::FieldsNamed { ref named, .. }),
+        ..
+    }) = ast.data
+    {
+        named
+    } else {
+        unimplemented!();
+    };
+    let optionized = fields.iter().map(|f| {
+        let name = &f.ident;
+        let ty = &f.ty;
+        quote! { #name: std::option::Option<#ty> }
+    });
+    let methods = fields.iter().map(|f| {
+        let name = &f.ident;
+        let ty = &f.ty;
+        quote! {
+            pub fn #name(&mut self, #name: #ty) -> &mut Self {
+                self.#name = Some(#name);
+                self
+            }
+        }
+    });
+    let build_fields = fields.iter().map(|f| {
+        let name = &f.ident;
+        quote! {
+            #name: self.#name.clone().ok_or(concat!(stringify!(#name), " is not set"))?
+        }
+    });
+    let empty_fields = fields.iter().map(|f| {
+        let name = &f.ident;
+        quote! {
+            #name: None
+        }
+    });
+    let expanded = quote! {
         pub struct #bident {
-            executable: Option<String>,
-            args: Option<Vec<String>>,
-            env: Option<Vec<String>>,
-            current_dir: Option<String>,
-
+            #(#optionized,)*
         }
         impl #bident {
-            pub fn executable(&mut self, executable: String) -> &mut Self {
-                self.executable = Some(executable);
-                self
-            }
-            pub fn args(&mut self, args: Vec<String>) -> &mut Self {
-                self.args = Some(args);
-                self
-            }
-            pub fn env(&mut self, env: Vec<String>) -> &mut Self {
-                self.env = Some(env);
-                self
-            }
-            pub fn current_dir(&mut self, current_dir: String) -> &mut Self {
-                self.current_dir = Some(current_dir);
-                self
-            }
-            pub fn build(&mut self) -> Result<#name, Box<dyn std::error::Error>> {
-                Ok(#name {
-                    executable: self.executable.clone().ok_or("executable not set")?,
-                    args: self.args.clone().ok_or("executable not set")?,
-                    env: self.env.clone().ok_or("executable not set")?,
-                    current_dir: self.current_dir.clone().ok_or("executable not set")?,
-                })
+            #(#methods)*
+
+            pub fn build(&self) -> Result<#name, Box<dyn std::error::Error>> {
+                Ok(
+                    #name {
+                        #(#build_fields,)*
+                    }
+                )
             }
         }
         impl #name {
             fn builder() -> #bident {
                 #bident {
-                    executable: None,
-                    args: None,
-                    env: None,
-                    current_dir: None,
+                    #(#empty_fields,)*
                 }
             }
         }
     };
-    expected.into()
+    expanded.into()
 }
