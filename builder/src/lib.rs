@@ -19,25 +19,50 @@ pub fn derive(input: TokenStream) -> TokenStream {
     } else {
         unimplemented!();
     };
+    let ty_is_option = |f: &syn::Field| {
+        if let syn::Type::Path(ref p) = f.ty {
+            return p.path.segments.len() == 1 && p.path.segments[0].ident == "Option";
+        }
+        false
+    };
     let optionized = fields.iter().map(|f| {
         let name = &f.ident;
         let ty = &f.ty;
-        quote! { #name: std::option::Option<#ty> }
+        if ty_is_option(&f) {
+            quote! { #name: #ty }
+        } else {  
+            quote! { #name: std::option::Option<#ty> }          
+        }
     });
     let methods = fields.iter().map(|f| {
         let name = &f.ident;
         let ty = &f.ty;
-        quote! {
-            pub fn #name(&mut self, #name: #ty) -> &mut Self {
-                self.#name = Some(#name);
-                self
+        if ty_is_option(&f) {
+            quote! {
+                pub fn #name(&mut self, #name: #ty) -> &mut Self {
+                    self.#name = #name;
+                    self
+                }
+            }
+        } else {
+            quote! {
+                pub fn #name(&mut self, #name: #ty) -> &mut Self {
+                    self.#name = Some(#name);
+                    self
+                }
             }
         }
     });
     let build_fields = fields.iter().map(|f| {
         let name = &f.ident;
-        quote! {
-            #name: self.#name.clone().ok_or(concat!(stringify!(#name), " is not set"))?
+        if ty_is_option(&f) {
+            quote! {
+                #name: self.#name.clone()
+            }
+        } else {
+            quote! {
+                #name: self.#name.clone().ok_or(concat!(stringify!(#name), " is not set"))?
+            }
         }
     });
     let empty_fields = fields.iter().map(|f| {
