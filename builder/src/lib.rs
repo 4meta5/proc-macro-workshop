@@ -132,7 +132,7 @@ fn extended_methods(f: &syn::Field) -> Option<(bool, proc_macro2::TokenStream)> 
     let mut tokens = g.stream().into_iter();
     match tokens.next().unwrap() {
         proc_macro2::TokenTree::Ident(ref i) => assert_eq!(i, "each"),
-        tt => panic!("unexpected 'each', found {}", tt),
+        tt => panic!("expected 'each', found {}", tt),
     }
     match tokens.next().unwrap() {
         proc_macro2::TokenTree::Punct(ref p) => assert_eq!(p.as_char(), '='),
@@ -147,7 +147,7 @@ fn extended_methods(f: &syn::Field) -> Option<(bool, proc_macro2::TokenStream)> 
             let arg = syn::Ident::new(&s.value(), s.span());
             let inner_ty = get_inner_type("Vec", &f.ty).unwrap();
             let method = quote!{ 
-                fn #arg(&mut self, #arg: #inner_ty) -> &mut Self {
+                pub fn #arg(&mut self, #arg: #inner_ty) -> &mut Self {
                     self.#name.push(#arg);
                     self
                 }
@@ -155,8 +155,7 @@ fn extended_methods(f: &syn::Field) -> Option<(bool, proc_macro2::TokenStream)> 
             Some((&arg == name, method))
         },
         lit => panic!("expected string, found {:?}", lit),
-    };
-    None
+    }
 }
 
 fn get_inner_type<'a>(wrapper: &str, ty: &'a syn::Type) -> Option<&'a syn::Type> {
