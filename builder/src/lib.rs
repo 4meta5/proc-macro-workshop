@@ -34,7 +34,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
         let set_method = if let Some(inner_ty) = get_inner_type("Option", ty) {
             quote! {
                 pub fn #name(&mut self, #name: #inner_ty) -> &mut Self {
-                    self.#name = Some(#name);
+                    self.#name = std::option::Option::Some(#name);
                     self
                 }
             }
@@ -48,7 +48,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
         } else {
             quote! {
                 pub fn #name(&mut self, #name: #ty) -> &mut Self {
-                    self.#name = Some(#name);
+                    self.#name = std::option::Option::Some(#name);
                     self
                 }
             }
@@ -57,12 +57,12 @@ pub fn derive(input: TokenStream) -> TokenStream {
             None => set_method.into(),
             Some((true, extend_method)) => extend_method,
             Some((false, extend_method)) => {
-                    let expr = quote! {
-                        #set_method
-                        #extend_method
-                    };
-                    expr.into()
-            },
+                let expr = quote! {
+                    #set_method
+                    #extend_method
+                };
+                expr.into()
+            }
         }
     });
     let build_fields = fields.iter().map(|f| {
@@ -80,12 +80,12 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let empty_fields = fields.iter().map(|f| {
         let name = &f.ident;
         if builder_of(&f).is_some() {
-            quote!{
-                #name: Vec::new()
+            quote! {
+                #name: std::vec::Vec::new()
             }
         } else {
             quote! {
-                #name: None
+                #name: std::option::Option::None
             }
         }
     });
@@ -96,8 +96,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
         impl #bident {
             #(#methods)*
 
-            pub fn build(&self) -> Result<#name, Box<dyn std::error::Error>> {
-                Ok(
+            pub fn build(&self) -> std::result::Result<#name, std::boxed::Box<dyn std::error::Error>> {
+                std::result::Result::Ok(
                     #name {
                         #(#build_fields,)*
                     }
@@ -118,15 +118,18 @@ pub fn derive(input: TokenStream) -> TokenStream {
 fn builder_of(f: &syn::Field) -> Option<&syn::Attribute> {
     for attr in &f.attrs {
         if attr.path.segments.len() == 1 && attr.path.segments[0].ident == "builder" {
-            return Some(attr)
+            return Some(attr);
         }
     }
     None
 }
 
 fn make_error<T: quote::ToTokens>(t: T) -> Option<(bool, proc_macro2::TokenStream)> {
-    Some((false, syn::Error::new_spanned(t, "expected `builder(each = \"...\")`").to_compile_error()))
-} 
+    Some((
+        false,
+        syn::Error::new_spanned(t, "expected `builder(each = \"...\")`").to_compile_error(),
+    ))
+}
 
 fn extended_methods(f: &syn::Field) -> Option<(bool, proc_macro2::TokenStream)> {
     let name = f.ident.as_ref().unwrap();
@@ -136,41 +139,36 @@ fn extended_methods(f: &syn::Field) -> Option<(bool, proc_macro2::TokenStream)> 
             // nvs.ident = "builder"
             // assert_eq!(nvs.nested.lit, "builder");
             if !nvs.path.is_ident("builder") {
-                return make_error(nvs)
+                return make_error(nvs);
             }
             match nvs.nested.pop().unwrap().into_value() {
                 syn::NestedMeta::Meta(syn::Meta::NameValue(nv)) => {
                     if !nv.path.is_ident("each") {
-                        return make_error(nvs)
+                        return make_error(nvs);
                     }
                     nv
-                },
+                }
                 // can't parse a NestedMeta into a token stream
-                _ => return make_error(nvs)
+                _ => return make_error(nvs),
             }
-        },
-        Ok(meta) => {
-            return make_error(meta.path())
-        },
+        }
+        Ok(meta) => return make_error(meta.path()),
         Err(e) => {
-            return Some((
-                false,
-                e.to_compile_error()
-            ));
+            return Some((false, e.to_compile_error()));
         }
     };
     match meta.lit {
         syn::Lit::Str(s) => {
             let arg = syn::Ident::new(&s.value(), s.span());
             let inner_ty = get_inner_type("Vec", &f.ty).unwrap();
-            let method = quote!{ 
+            let method = quote! {
                 pub fn #arg(&mut self, #arg: #inner_ty) -> &mut Self {
                     self.#name.push(#arg);
                     self
                 }
             };
             Some((&arg == name, method))
-        },
+        }
         lit => panic!("expected string, found {:?}", lit),
     }
 }
