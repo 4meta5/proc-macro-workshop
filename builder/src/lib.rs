@@ -115,34 +115,51 @@ pub fn derive(input: TokenStream) -> TokenStream {
     expanded.into()
 }
 
-fn builder_of(f: &syn::Field) -> Option<proc_macro2::Group> {
+fn builder_of(f: &syn::Field) -> Option<&syn::Attribute> {
     for attr in &f.attrs {
         if attr.path.segments.len() == 1 && attr.path.segments[0].ident == "builder" {
-            if let proc_macro2::TokenTree::Group(g) = attr.tokens.clone().into_iter().next().unwrap() {
-                return Some(g);
-            }
+            return Some(attr)
         }
     }
     None
 }
 
+fn make_error<T: quote::ToTokens>(t: T) -> Option<(bool, proc_macro2::TokenStream)> {
+    Some((false, syn::Error::new_spanned(t, "expected `builder(each = \"...\")`").to_compile_error()))
+} 
+
 fn extended_methods(f: &syn::Field) -> Option<(bool, proc_macro2::TokenStream)> {
     let name = f.ident.as_ref().unwrap();
     let g = builder_of(f)?;
-    let mut tokens = g.stream().into_iter();
-    match tokens.next().unwrap() {
-        proc_macro2::TokenTree::Ident(ref i) => assert_eq!(i, "each"),
-        tt => panic!("expected 'each', found {}", tt),
-    }
-    match tokens.next().unwrap() {
-        proc_macro2::TokenTree::Punct(ref p) => assert_eq!(p.as_char(), '='),
-        tt => panic!("expected '=', found {}", tt),
-    }
-    let arg = match tokens.next().unwrap() {
-        proc_macro2::TokenTree::Literal(l) => l,
-        tt => panic!("expected literal, found {}", tt),
+    let meta = match g.parse_meta() {
+        Ok(syn::Meta::List(mut nvs)) => {
+            // nvs.ident = "builder"
+            // assert_eq!(nvs.nested.lit, "builder");
+            if !nvs.path.is_ident("builder") {
+                return make_error(nvs)
+            }
+            match nvs.nested.pop().unwrap().into_value() {
+                syn::NestedMeta::Meta(syn::Meta::NameValue(nv)) => {
+                    if !nv.path.is_ident("each") {
+                        return make_error(nvs)
+                    }
+                    nv
+                },
+                // can't parse a NestedMeta into a token stream
+                _ => return make_error(nvs)
+            }
+        },
+        Ok(meta) => {
+            return make_error(meta.path())
+        },
+        Err(e) => {
+            return Some((
+                false,
+                e.to_compile_error()
+            ));
+        }
     };
-    match syn::Lit::new(arg) {
+    match meta.lit {
         syn::Lit::Str(s) => {
             let arg = syn::Ident::new(&s.value(), s.span());
             let inner_ty = get_inner_type("Vec", &f.ty).unwrap();
